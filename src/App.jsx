@@ -2483,11 +2483,80 @@ function WeeklyRecapPage({ league }) {
 
 // ── COMMISSIONER TOOLS PAGE ───────────────────────────────────────────────
 function CommissionerPage({ league, onLeagueUpdate, cpuTeams, onCpuTeamsUpdate }) {
-  const { settings, leagueName } = league;
+  const { settings, leagueName, roster } = league;
+  const [tab, setTab] = useState("scores"); // scores | settings | announcements | trades
   const [localSettings, setLocalSettings] = useState({ ...settings });
   const [announcement, setAnnouncement] = useState("");
   const [announcements, setAnnouncements] = useState([]);
   const [saved, setSaved] = useState(false);
+
+  // ── Score Entry State ────────────────────────────────────────────────
+  const [selectedEvent, setSelectedEvent] = useState("");
+  const [customEvent, setCustomEvent] = useState("");
+  const [eventDates, setEventDates] = useState("");
+  const [scoreSearch, setScoreSearch] = useState("");
+  const [entries, setEntries] = useState({}); // { playerId: { strokesVsPar, didWin } }
+  const [scoreSaved, setScoreSaved] = useState(false);
+  const [scoreHistory, setScoreHistory] = useState([]); // past entered events
+
+  const eventName = selectedEvent === "custom" ? customEvent : selectedEvent;
+  const allPlayers = ALL_PLAYERS;
+  const filteredPlayers = allPlayers.filter(p =>
+    p.name.toLowerCase().includes(scoreSearch.toLowerCase())
+  );
+
+  const getEntry = (id) => entries[id] ?? { strokesVsPar: 0, didWin: false };
+
+  const setStroke = (id, val) => {
+    setEntries(prev => ({ ...prev, [id]: { ...getEntry(id), strokesVsPar: val } }));
+  };
+
+  const toggleWin = (id) => {
+    // Only one winner allowed
+    const current = getEntry(id).didWin;
+    const newEntries = { ...entries };
+    Object.keys(newEntries).forEach(k => { newEntries[k] = { ...newEntries[k], didWin: false }; });
+    newEntries[id] = { ...getEntry(id), didWin: !current, strokesVsPar: getEntry(id).strokesVsPar };
+    setEntries(newEntries);
+  };
+
+  const fantasyPts = (id) => {
+    const e = getEntry(id);
+    return (e.strokesVsPar * -1) + (e.didWin ? 1 : 0);
+  };
+
+  const handleSaveScores = () => {
+    if (!eventName.trim()) return alert("Select or enter an event name");
+    const scored = Object.keys(entries).filter(id => entries[id].strokesVsPar !== 0 || entries[id].didWin);
+    if (scored.length === 0) return alert("Enter at least one player score");
+
+    // Update each rostered player's total points
+    const updatedRoster = roster.map(p => {
+      const e = entries[p.id];
+      if (!e) return p;
+      const pts = (e.strokesVsPar * -1) + (e.didWin ? 1 : 0);
+      return { ...p, total: (p.total ?? 0) + pts, wins: p.wins + (e.didWin ? 1 : 0) };
+    });
+
+    onLeagueUpdate({ roster: updatedRoster });
+
+    // Save to history
+    const winner = allPlayers.find(p => entries[p.id]?.didWin);
+    setScoreHistory(prev => [{
+      event: eventName,
+      dates: eventDates,
+      winner: winner?.name ?? "Unknown",
+      playersScored: scored.length,
+      savedAt: new Date().toLocaleString(),
+    }, ...prev]);
+
+    setScoreSaved(true);
+    setEntries({});
+    setSelectedEvent("");
+    setCustomEvent("");
+    setEventDates("");
+    setTimeout(() => setScoreSaved(false), 3000);
+  };
 
   const saveSettings = () => {
     onLeagueUpdate({ settings: localSettings });
@@ -2501,70 +2570,240 @@ function CommissionerPage({ league, onLeagueUpdate, cpuTeams, onCpuTeamsUpdate }
     setAnnouncement("");
   };
 
+  const commishTabs = [
+    { id: "scores", label: "📊 Scores", },
+    { id: "settings", label: "⚙️ Settings" },
+    { id: "announcements", label: "📢 News" },
+    { id: "trades", label: "🚫 Trades" },
+  ];
+
   return (
     <div style={{ padding: "20px 16px 100px" }}>
-      <h1 style={{ fontFamily: "'Georgia',serif", fontSize: 28, margin: "0 0 4px" }}>⚙️ Commissioner</h1>
-      <p style={{ color: T.subtext, margin: "0 0 18px", fontSize: 14 }}>{leagueName} · Admin Tools</p>
+      <h1 style={{ fontFamily: "'Georgia',serif", fontSize: 26, margin: "0 0 4px" }}>⚙️ Commissioner</h1>
+      <p style={{ color: T.subtext, margin: "0 0 14px", fontSize: 14 }}>{leagueName} · Admin Tools</p>
 
-      {/* Announcements */}
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>📢 League Announcements</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          <input value={announcement} onChange={e => setAnnouncement(e.target.value)}
-            placeholder="Post an announcement..."
-            style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${T.border}`, fontSize: 14, outline: "none", fontFamily: "inherit" }} />
-          <Btn style={{ padding: "10px 14px" }} onClick={postAnnouncement}>Post</Btn>
-        </div>
-        {announcements.length === 0 && <p style={{ color: T.subtext, fontSize: 13, margin: 0 }}>No announcements yet.</p>}
-        {announcements.map((a, i) => (
-          <div key={i} style={{ padding: "8px 0", borderBottom: i < announcements.length - 1 ? `1px solid ${T.border}` : "none" }}>
-            <div style={{ fontSize: 14 }}>{a.text}</div>
-            <div style={{ fontSize: 11, color: T.subtext, marginTop: 2 }}>{a.time}</div>
-          </div>
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto", paddingBottom: 4 }}>
+        {commishTabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            padding: "8px 14px", borderRadius: 20, fontSize: 12, fontWeight: 700,
+            whiteSpace: "nowrap", cursor: "pointer", border: "none",
+            background: tab === t.id ? T.accent : T.card,
+            color: tab === t.id ? T.darkGreen : T.subtext,
+            boxShadow: tab === t.id ? "0 2px 8px rgba(212,175,55,0.3)" : "none",
+          }}>{t.label}</button>
         ))}
-      </Card>
+      </div>
 
-      {/* League settings edit */}
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚙️ League Settings</div>
-        <p style={{ color: T.subtext, fontSize: 12, margin: "0 0 14px" }}>Changes take effect from next event</p>
-        <SettingRow label="Max Teams" sub="2–30">
-          <Stepper value={localSettings.maxTeams ?? 8} onChange={v => setLocalSettings(s => ({ ...s, maxTeams: v }))} min={2} max={30} />
-        </SettingRow>
-        <SettingRow label="Roster Cap" sub="5–15 players">
-          <Stepper value={localSettings.rosterCap ?? 10} onChange={v => setLocalSettings(s => ({ ...s, rosterCap: v }))} min={5} max={15} />
-        </SettingRow>
-        <SettingRow label="Starters / Week" sub="3–7">
-          <Stepper value={localSettings.startersPerWeek ?? 5} onChange={v => setLocalSettings(s => ({ ...s, startersPerWeek: v }))} min={3} max={7} />
-        </SettingRow>
-        <SettingRow label="Playoff Teams" sub="2–30">
-          <Stepper value={localSettings.playoffTeams ?? 4} onChange={v => setLocalSettings(s => ({ ...s, playoffTeams: v }))} min={2} max={30} />
-        </SettingRow>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12 }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Include JomezPro Events</div>
+      {/* ── SCORE ENTRY TAB ── */}
+      {tab === "scores" && (<>
+        {scoreSaved && (
+          <div style={{ background: T.lightGreen, border: `1.5px solid ${T.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>✅</span>
+            <div>
+              <div style={{ fontWeight: 700, color: T.green }}>Scores saved!</div>
+              <div style={{ fontSize: 12, color: T.subtext }}>Player points have been updated</div>
+            </div>
           </div>
-          <Toggle value={localSettings.includeJomez ?? true} onChange={v => setLocalSettings(s => ({ ...s, includeJomez: v }))} />
-        </div>
-        <Btn style={{ width: "100%", marginTop: 14 }} onClick={saveSettings}>
-          {saved ? "✓ Saved!" : "Save Settings"}
-        </Btn>
-      </Card>
+        )}
 
-      {/* Veto / manual score */}
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>🔧 Manual Score Adjust</div>
-        <p style={{ color: T.subtext, fontSize: 13, margin: "0 0 10px" }}>Commissioners can manually add or deduct points from any team.</p>
-        <div style={{ padding: "12px", background: T.lightGreen, borderRadius: 10, fontSize: 13, color: T.green, fontWeight: 600 }}>
-          Coming soon in a future update
-        </div>
-      </Card>
+        <Card>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>📊 Enter Event Scores</div>
+          <p style={{ color: T.subtext, fontSize: 13, margin: "0 0 14px" }}>
+            Select an event, enter each player's score vs par, mark the winner. Fantasy pts = strokes under par + 1 win bonus.
+          </p>
 
-      {/* Trade veto */}
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>🚫 Trade Veto</div>
-        <p style={{ color: T.subtext, fontSize: 13, margin: 0 }}>No pending trades to review.</p>
-      </Card>
+          {/* Event selector */}
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: T.subtext, letterSpacing: 0.5, display: "block", marginBottom: 6 }}>SELECT EVENT</label>
+            <select
+              value={selectedEvent}
+              onChange={e => setSelectedEvent(e.target.value)}
+              style={{
+                width: "100%", padding: "12px 14px", borderRadius: 12,
+                border: `1.5px solid ${T.border}`, fontSize: 14,
+                background: "#fff", outline: "none", fontFamily: "inherit",
+                color: T.text, marginBottom: 8,
+              }}
+            >
+              <option value="">-- Select a 2027 DGPT Event --</option>
+              {UPCOMING.map((e, i) => (
+                <option key={i} value={e.name}>{e.name} · {e.dates}</option>
+              ))}
+              <option value="custom">✏️ Custom event name...</option>
+            </select>
+            {selectedEvent === "custom" && (
+              <input
+                placeholder="Event name"
+                value={customEvent}
+                onChange={e => setCustomEvent(e.target.value)}
+                style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, marginBottom: 8, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }}
+              />
+            )}
+            <input
+              placeholder="Dates (e.g. Mar 12–14)"
+              value={eventDates}
+              onChange={e => setEventDates(e.target.value)}
+              style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }}
+            />
+          </div>
+
+          {/* Summary banner */}
+          {eventName && (
+            <div style={{ background: `linear-gradient(135deg, ${T.darkGreen}, ${T.green})`, borderRadius: 12, padding: "12px 16px", marginBottom: 14, color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{eventName}</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>{eventDates || "Dates TBD"}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ color: T.accent, fontWeight: 800, fontSize: 18 }}>
+                  {Object.keys(entries).filter(id => entries[id].strokesVsPar !== 0 || entries[id].didWin).length}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.7 }}>scored</div>
+              </div>
+            </div>
+          )}
+
+          {/* Player search */}
+          <input
+            placeholder="🔍 Search players..."
+            value={scoreSearch}
+            onChange={e => setScoreSearch(e.target.value)}
+            style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, marginBottom: 12, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }}
+          />
+
+          {/* Player score rows */}
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {filteredPlayers.map((p, i) => {
+              const entry = getEntry(p.id);
+              const pts = fantasyPts(p.id);
+              const hasScore = entry.strokesVsPar !== 0 || entry.didWin;
+              return (
+                <div key={p.id} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "10px 0",
+                  borderBottom: i < filteredPlayers.length - 1 ? `1px solid ${T.border}` : "none",
+                  background: hasScore ? "rgba(212,175,55,0.04)" : "transparent",
+                }}>
+                  <Av ini={p.ini} size={34} color={hasScore ? T.green : "#ccc"} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: T.subtext }}>{p.div} · {p.rating}</div>
+                  </div>
+                  {/* Stroke stepper */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+                    <button onClick={() => setStroke(p.id, entry.strokesVsPar - 1)} style={{
+                      width: 30, height: 30, borderRadius: "8px 0 0 8px",
+                      border: `1.5px solid ${T.border}`, background: "#fff",
+                      fontSize: 16, fontWeight: 700, cursor: "pointer",
+                    }}>−</button>
+                    <div style={{
+                      width: 44, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
+                      border: `1.5px solid ${T.border}`, borderLeft: "none", borderRight: "none",
+                      fontWeight: 800, fontSize: 14, background: "#fff",
+                      color: entry.strokesVsPar < 0 ? T.green : entry.strokesVsPar > 0 ? T.red : T.subtext,
+                    }}>
+                      {entry.strokesVsPar > 0 ? `+${entry.strokesVsPar}` : entry.strokesVsPar}
+                    </div>
+                    <button onClick={() => setStroke(p.id, entry.strokesVsPar + 1)} style={{
+                      width: 30, height: 30, borderRadius: "0 8px 8px 0",
+                      border: `1.5px solid ${T.border}`, background: "#fff",
+                      fontSize: 16, fontWeight: 700, cursor: "pointer",
+                    }}>+</button>
+                  </div>
+                  {/* Fantasy pts preview */}
+                  <div style={{ width: 36, textAlign: "right", fontWeight: 800, fontSize: 14, color: pts > 0 ? T.green : pts < 0 ? T.red : T.subtext }}>
+                    {pts > 0 ? `+${pts}` : pts}
+                  </div>
+                  {/* Win trophy */}
+                  <button onClick={() => toggleWin(p.id)} style={{
+                    width: 34, height: 30, borderRadius: 8,
+                    border: `1.5px solid ${entry.didWin ? T.accent : T.border}`,
+                    background: entry.didWin ? T.accent : "#fff",
+                    cursor: "pointer", fontSize: 14,
+                  }}>🏆</button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Save button */}
+          <Btn style={{ width: "100%", marginTop: 16, background: T.accent, color: T.darkGreen, fontWeight: 800 }} onClick={handleSaveScores}>
+            💾 Save Scores & Update Points
+          </Btn>
+          <p style={{ color: T.subtext, fontSize: 11, textAlign: "center", marginTop: 8 }}>
+            Fantasy pts = (strokes vs par × −1) + 1 win bonus · Points update immediately for all teams
+          </p>
+        </Card>
+
+        {/* Score history */}
+        {scoreHistory.length > 0 && (
+          <Card>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>📋 Score History</div>
+            {scoreHistory.map((h, i) => (
+              <div key={i} style={{ padding: "8px 0", borderBottom: i < scoreHistory.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{h.event}</div>
+                <div style={{ fontSize: 12, color: T.subtext }}>🥇 {h.winner} · {h.playersScored} players scored · {h.savedAt}</div>
+              </div>
+            ))}
+          </Card>
+        )}
+      </>)}
+
+      {/* ── SETTINGS TAB ── */}
+      {tab === "settings" && (
+        <Card>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>⚙️ League Settings</div>
+          <p style={{ color: T.subtext, fontSize: 12, margin: "0 0 14px" }}>Changes take effect from next event</p>
+          <SettingRow label="Max Teams" sub="2–30">
+            <Stepper value={localSettings.maxTeams ?? 8} onChange={v => setLocalSettings(s => ({ ...s, maxTeams: v }))} min={2} max={30} />
+          </SettingRow>
+          <SettingRow label="Roster Cap" sub="5–15 players">
+            <Stepper value={localSettings.rosterCap ?? 10} onChange={v => setLocalSettings(s => ({ ...s, rosterCap: v }))} min={5} max={15} />
+          </SettingRow>
+          <SettingRow label="Starters / Week" sub="3–7">
+            <Stepper value={localSettings.startersPerWeek ?? 5} onChange={v => setLocalSettings(s => ({ ...s, startersPerWeek: v }))} min={3} max={7} />
+          </SettingRow>
+          <SettingRow label="Playoff Teams" sub="2–30">
+            <Stepper value={localSettings.playoffTeams ?? 4} onChange={v => setLocalSettings(s => ({ ...s, playoffTeams: v }))} min={2} max={30} />
+          </SettingRow>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12 }}>
+            <div><div style={{ fontWeight: 600, fontSize: 14 }}>Include JomezPro Events</div></div>
+            <Toggle value={localSettings.includeJomez ?? true} onChange={v => setLocalSettings(s => ({ ...s, includeJomez: v }))} />
+          </div>
+          <Btn style={{ width: "100%", marginTop: 14 }} onClick={saveSettings}>
+            {saved ? "✓ Saved!" : "Save Settings"}
+          </Btn>
+        </Card>
+      )}
+
+      {/* ── ANNOUNCEMENTS TAB ── */}
+      {tab === "announcements" && (
+        <Card>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>📢 League Announcements</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input value={announcement} onChange={e => setAnnouncement(e.target.value)}
+              placeholder="Post an announcement..."
+              style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${T.border}`, fontSize: 14, outline: "none", fontFamily: "inherit", color: T.text }} />
+            <Btn style={{ padding: "10px 14px" }} onClick={postAnnouncement}>Post</Btn>
+          </div>
+          {announcements.length === 0 && <p style={{ color: T.subtext, fontSize: 13, margin: 0 }}>No announcements yet.</p>}
+          {announcements.map((a, i) => (
+            <div key={i} style={{ padding: "8px 0", borderBottom: i < announcements.length - 1 ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ fontSize: 14 }}>{a.text}</div>
+              <div style={{ fontSize: 11, color: T.subtext, marginTop: 2 }}>{a.time}</div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* ── TRADES TAB ── */}
+      {tab === "trades" && (
+        <Card>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>🚫 Trade Veto</div>
+          <p style={{ color: T.subtext, fontSize: 13, margin: 0 }}>No pending trades to review.</p>
+        </Card>
+      )}
     </div>
   );
 }
