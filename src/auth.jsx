@@ -3,9 +3,16 @@ import { auth, getCurrentUser, leagues, members, rosters, draft, scores, chat, t
 
 // ── THEME (copy from main app) ───────────────────────────────
 const T = {
-  darkGreen: "#1a2e1a", green: "#2d5a2d", lightGreen: "#e8f0e8",
-  accent: "#c9a84c", red: "#c0392b", text: "#1a1a1a", subtext: "#666",
-  bg: "#f0f2f0", card: "#ffffff", border: "#e0e8e0",
+  darkGreen: "#0A1D36",
+  green: "#1E4B8C",
+  lightGreen: "#e8eef7",
+  accent: "#D4AF37",
+  red: "#c0392b",
+  text: "#0A1D36",
+  subtext: "#5a6a7a",
+  bg: "#f0f3f8",
+  card: "#ffffff",
+  border: "#d8e2f0",
 };
 
 // ── SHARED INPUT STYLE ───────────────────────────────────────
@@ -93,8 +100,12 @@ export function AuthScreen({ onAuthed, onSignIn, onSignUp, loading: extLoading, 
     <div style={{ minHeight: "100vh", background: T.darkGreen, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontSize: 64, marginBottom: 10 }}>⚔️</div>
-        <h1 style={{ color: "#fff", fontSize: 30, fontFamily: "'Georgia',serif", margin: "0 0 6px" }}>Warrior Fantasy DG</h1>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, margin: 0 }}>Draft. Compete. Conquer.</p>
+        <h1 style={{ color: "#fff", fontSize: 32, fontFamily: "'Georgia',serif", margin: "0 0 4px", letterSpacing: 1 }}>Warrior Fantasy DG</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center", marginTop: 4 }}>
+          <div style={{ height: 1, width: 24, background: "#D4AF37", opacity: 0.7 }} />
+          <p style={{ color: "#D4AF37", fontSize: 11, margin: 0, fontWeight: 700, letterSpacing: 2 }}>DRAFT. COMPETE. CONQUER.</p>
+          <div style={{ height: 1, width: 24, background: "#D4AF37", opacity: 0.7 }} />
+        </div>
       </div>
 
       <div style={{ background: T.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 380 }}>
@@ -103,8 +114,8 @@ export function AuthScreen({ onAuthed, onSignIn, onSignUp, loading: extLoading, 
           {[["signin","Sign In"],["signup","Create Account"]].map(([m, label]) => (
             <button key={m} onClick={() => { setMode(m); setError(""); setInfo(""); }} style={{
               flex: 1, padding: "8px", borderRadius: 10, border: "none",
-              background: mode === m ? T.green : "transparent",
-              color: mode === m ? "#fff" : T.subtext,
+              background: mode === m ? "#D4AF37" : "transparent",
+              color: mode === m ? "#0A1D36" : "rgba(255,255,255,0.6)",
               fontWeight: 700, fontSize: 13, cursor: "pointer",
             }}>{label}</button>
           ))}

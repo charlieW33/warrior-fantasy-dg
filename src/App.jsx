@@ -194,7 +194,7 @@ const NavBar = ({ leagueName, onMenu, onHome }) => (
     <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={onHome}>
       <div style={{
         width: 36, height: 36, borderRadius: 8,
-        background: "linear-gradient(135deg, #0A1D36, #D4AF37)",
+        background: "linear-gradient(135deg, #1E4B8C, #D4AF37)",
         display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
       }}>🛡️</div>
       <span style={{ color: "#fff", fontWeight: 700, fontSize: 16, fontFamily: "'Georgia',serif" }}>
@@ -222,9 +222,10 @@ const SideDrawer = ({ open, onClose, setPage }) => {
     <div style={{ position: "fixed", inset: 0, zIndex: 300 }}>
       <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={onClose} />
       <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 260, background: T.card, overflowY: "auto", boxShadow: "-4px 0 20px rgba(0,0,0,0.2)" }}>
-        <div style={{ background: T.darkGreen, padding: "20px 16px 16px" }}>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: 18, fontFamily: "'Georgia',serif" }}>⚔️ More</div>
-          <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 }}>Warrior Fantasy DG</div>
+        <div style={{ background: T.darkGreen, padding: "20px 16px 16px", borderBottom: "2px solid #D4AF37" }}>
+          <div style={{ fontSize: 32, marginBottom: 4, filter: "drop-shadow(0 2px 6px rgba(212,175,55,0.4))" }}>🛡️</div>
+          <div style={{ color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Georgia',serif" }}>Warrior Fantasy DG</div>
+          <div style={{ color: "#D4AF37", fontSize: 10, fontWeight: 700, letterSpacing: 2, marginTop: 2 }}>DRAFT. COMPETE. CONQUER.</div>
         </div>
         {extras.map(e => (
           <button key={e.id} onClick={() => { setPage(e.id); onClose(); }} style={{
@@ -263,7 +264,7 @@ const BottomNav = ({ page, setPage }) => {
           <span style={{ fontSize: 10, fontWeight: page === t.id ? 700 : 400, color: page === t.id ? T.green : T.subtext }}>
             {t.label}
           </span>
-          {page === t.id && <div style={{ width: 4, height: 4, borderRadius: 2, background: T.green }} />}
+          {page === t.id && <div style={{ width: 4, height: 4, borderRadius: 2, background: T.accent }} />}
         </button>
       ))}
     </div>
@@ -458,12 +459,16 @@ function LandingPage({ onLeagueCreated }) {
   return (
     <div style={{ minHeight: "100vh", background: T.darkGreen, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ textAlign: "center", marginBottom: 36 }}>
-        <div style={{ fontSize: 72, marginBottom: 12 }}>🛡️</div>
-        <h1 style={{ color: "#fff", fontSize: 34, fontFamily: "'Georgia',serif", margin: "0 0 8px" }}>Warrior Fantasy DG</h1>
-        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, margin: 0 }}>Draft. Compete. Conquer.</p>
+        <div style={{ fontSize: 80, marginBottom: 8, filter: "drop-shadow(0 4px 12px rgba(212,175,55,0.4))" }}>🛡️</div>
+        <h1 style={{ color: "#fff", fontSize: 36, fontFamily: "'Georgia',serif", margin: "0 0 4px", letterSpacing: 1 }}>Warrior Fantasy DG</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", marginTop: 4 }}>
+          <div style={{ height: 1, width: 30, background: T.accent, opacity: 0.7 }} />
+          <p style={{ color: T.accent, fontSize: 12, margin: 0, fontWeight: 700, letterSpacing: 2 }}>DRAFT. COMPETE. CONQUER.</p>
+          <div style={{ height: 1, width: 30, background: T.accent, opacity: 0.7 }} />
+        </div>
       </div>
       <Card style={{ width: "100%", maxWidth: 380, marginBottom: 16 }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: T.green, letterSpacing: 1, marginTop: 0 }}>SCORING RULES</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: T.accent, letterSpacing: 2, marginTop: 0 }}>SCORING RULES</p>
         <div style={{ fontSize: 14, lineHeight: 2 }}>
           <span style={{ color: T.green, fontWeight: 700 }}>+1 pt</span> per stroke under par &nbsp;·&nbsp; <span style={{ color: T.red, fontWeight: 700 }}>−1 pt</span> over par
         </div>
@@ -471,8 +476,8 @@ function LandingPage({ onLeagueCreated }) {
         <p style={{ color: T.subtext, fontSize: 12, margin: "10px 0 0" }}>Draft up to 10 · Start 5 per tournament · No salary cap</p>
       </Card>
       <div style={{ display: "flex", gap: 12, width: "100%", maxWidth: 380 }}>
-        <Btn style={{ flex: 1, padding: "15px 0", fontSize: 15 }} onClick={() => setScreen("create")}>+ Create League</Btn>
-        <Btn style={{ flex: 1, padding: "15px 0", fontSize: 15 }} outline onClick={() => setScreen("join")}>→ Join League</Btn>
+        <Btn style={{ flex: 1, padding: "15px 0", fontSize: 15, background: T.accent, color: "#0A1D36", fontWeight: 800 }} onClick={() => setScreen("create")}>+ Create League</Btn>
+        <Btn style={{ flex: 1, padding: "15px 0", fontSize: 15, background: "transparent", color: "#fff", border: "2px solid rgba(255,255,255,0.4)" }} outline onClick={() => setScreen("join")}>→ Join League</Btn>
       </div>
       <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 32, textAlign: "center" }}>
         No leagues yet — create one or join with an invite code
