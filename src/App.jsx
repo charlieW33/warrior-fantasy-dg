@@ -3,6 +3,10 @@ import { AuthScreen, useAuth } from "./auth.jsx";
 import { auth, leagues as leaguesApi, members as membersApi, rosters as rostersApi, getCurrentUser } from "./supabase.js";
 
 // ── THEME ───────────────────────────────────────────────────────────────
+// ── GLOBAL ADMIN ─────────────────────────────────────────────────────────
+// Only this email can access the global admin panel
+const ADMIN_EMAIL = "ccwarf2@gmail.com";
+
 const T = {
   // Warrior Fantasy DG brand colors
   darkGreen: "#0A1D36",   // Navy (primary dark)
@@ -3010,6 +3014,688 @@ function LeagueHistoryPage({ league }) {
 }
 
 
+
+// ── GLOBAL ADMIN PANEL ────────────────────────────────────────────────────
+// Only accessible to ccwarf2@gmail.com
+// Enter scores once after each DGPT event → updates ALL leagues globally
+function GlobalAdminPanel({ user, globalScores, onScoresSaved, onClose }) {
+  const [tab, setTab] = useState("entry"); // entry | history | players
+  const [selectedEvent, setSelectedEvent] = useState("");
+  const [customEvent, setCustomEvent] = useState("");
+  const [eventDates, setEventDates] = useState("");
+  const [eventTier, setEventTier] = useState("DGPT");
+  const [entries, setEntries] = useState({});
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [scoreHistory, setScoreHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("wfdg_score_history") ?? "[]"); } catch { return []; }
+  });
+
+  const eventName = selectedEvent === "custom" ? customEvent : selectedEvent;
+  const filtered = ALL_PLAYERS.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+
+  const getEntry = (id) => entries[id] ?? { strokesVsPar: 0, didWin: false };
+  const fantasyPts = (id) => {
+    const e = getEntry(id);
+    return (e.strokesVsPar * -1) + (e.didWin ? 1 : 0);
+  };
+
+  const setStroke = (id, val) => setEntries(prev => ({ ...prev, [id]: { ...getEntry(id), strokesVsPar: val } }));
+
+  const toggleWin = (id) => {
+    const newEntries = {};
+    Object.keys({ ...entries, [id]: getEntry(id) }).forEach(k => {
+      newEntries[k] = { ...getEntry(parseInt(k)), didWin: false };
+    });
+    newEntries[id] = { ...getEntry(id), didWin: !getEntry(id).didWin };
+    setEntries(newEntries);
+  };
+
+  const totalScored = Object.keys(entries).filter(id => entries[id].strokesVsPar !== 0 || entries[id].didWin).length;
+  const winner = ALL_PLAYERS.find(p => entries[p.id]?.didWin);
+
+  const handleSave = () => {
+    if (!eventName.trim()) return alert("Select or enter an event name");
+    if (totalScored === 0) return alert("Enter at least one player score");
+    setSaving(true);
+
+    // Build updated global scores
+    const newGlobal = { ...globalScores };
+    ALL_PLAYERS.forEach(p => {
+      const e = entries[p.id];
+      if (!e || (e.strokesVsPar === 0 && !e.didWin)) return;
+      const pts = (e.strokesVsPar * -1) + (e.didWin ? 1 : 0);
+      if (!newGlobal[p.id]) {
+        newGlobal[p.id] = { totalPts: 0, wins: 0, eventCount: 0, events: [] };
+      }
+      newGlobal[p.id].totalPts += pts;
+      newGlobal[p.id].wins += e.didWin ? 1 : 0;
+      newGlobal[p.id].eventCount += 1;
+      newGlobal[p.id].events = [
+        ...(newGlobal[p.id].events ?? []),
+        { name: eventName, dates: eventDates, pts, didWin: e.didWin ?? false }
+      ];
+    });
+
+    onScoresSaved(newGlobal);
+
+    // Save to history
+    const historyEntry = {
+      event: eventName, dates: eventDates, tier: eventTier,
+      winner: winner?.name ?? "Unknown",
+      playersScored: totalScored,
+      savedAt: new Date().toLocaleString(),
+      entries: { ...entries },
+    };
+    const newHistory = [historyEntry, ...scoreHistory];
+    setScoreHistory(newHistory);
+    localStorage.setItem("wfdg_score_history", JSON.stringify(newHistory));
+
+    // Also update COMPLETED array in memory for schedule display
+    setSaving(false);
+    setSaved(true);
+    setEntries({});
+    setSelectedEvent("");
+    setCustomEvent("");
+    setEventDates("");
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0A1D36", fontFamily: "'Helvetica Neue',sans-serif" }}>
+      {/* Admin Header */}
+      <div style={{ background: "#D4AF37", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>⚡</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0A1D36", fontFamily: "'Georgia',serif" }}>Global Admin Panel</div>
+            <div style={{ fontSize: 11, color: "rgba(10,29,54,0.7)", fontWeight: 600 }}>Warrior Fantasy DG · {user?.email}</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: "rgba(10,29,54,0.15)", border: "none", color: "#0A1D36", fontWeight: 800, fontSize: 14, padding: "6px 14px", borderRadius: 10, cursor: "pointer" }}>
+          ← Back to App
+        </button>
+      </div>
+
+      <div style={{ padding: "16px 16px 80px" }}>
+        {/* Stats row */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+          {[
+            { label: "EVENTS ENTERED", value: scoreHistory.length },
+            { label: "PLAYERS SCORED", value: Object.keys(globalScores).length },
+            { label: "2027 SEASON", value: `${scoreHistory.length}/${UPCOMING.length}` },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.07)", borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
+              <div style={{ color: "#D4AF37", fontWeight: 800, fontSize: 20, fontFamily: "'Georgia',serif" }}>{s.value}</div>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 9, fontWeight: 700, letterSpacing: 1, marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {[["entry","📊 Enter Scores"],["history","📋 History"],["players","👤 Player Stats"]].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} style={{
+              flex: 1, padding: "10px 0", borderRadius: 12, fontSize: 12, fontWeight: 700,
+              cursor: "pointer", border: "none",
+              background: tab === id ? "#D4AF37" : "rgba(255,255,255,0.08)",
+              color: tab === id ? "#0A1D36" : "rgba(255,255,255,0.7)",
+            }}>{label}</button>
+          ))}
+        </div>
+
+        {/* ── SCORE ENTRY TAB ── */}
+        {tab === "entry" && (
+          <div style={{ background: "#fff", borderRadius: 16, padding: "16px" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0A1D36", marginBottom: 4 }}>📊 Enter Event Scores</div>
+            <p style={{ color: "#5a6a7a", fontSize: 13, margin: "0 0 14px" }}>
+              These scores update ALL leagues on the platform automatically.
+            </p>
+
+            {saved && (
+              <div style={{ background: "#e8f5e9", border: "1.5px solid #2d5a2d", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontWeight: 700, color: "#2d5a2d" }}>
+                ✅ Scores saved! All leagues updated.
+              </div>
+            )}
+
+            {/* Event picker */}
+            <select value={selectedEvent} onChange={e => setSelectedEvent(e.target.value)} style={{
+              width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid #d8e2f0",
+              fontSize: 14, background: "#fff", outline: "none", fontFamily: "inherit",
+              color: "#0A1D36", marginBottom: 8,
+            }}>
+              <option value="">-- Select 2027 DGPT Event --</option>
+              {UPCOMING.map((e, i) => (
+                <option key={i} value={e.name}>{e.tier} · {e.name} · {e.dates}</option>
+              ))}
+              <option value="custom">✏️ Custom event...</option>
+            </select>
+
+            {selectedEvent === "custom" && (
+              <input placeholder="Event name" value={customEvent} onChange={e => setCustomEvent(e.target.value)} style={{
+                width: "100%", padding: "12px 14px", borderRadius: 12, border: "1.5px solid #d8e2f0",
+                fontSize: 14, marginBottom: 8, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: "#0A1D36",
+              }} />
+            )}
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <input placeholder="Dates (e.g. Mar 12–14)" value={eventDates} onChange={e => setEventDates(e.target.value)} style={{
+                flex: 1, padding: "12px 14px", borderRadius: 12, border: "1.5px solid #d8e2f0",
+                fontSize: 14, outline: "none", fontFamily: "inherit", color: "#0A1D36",
+              }} />
+              <select value={eventTier} onChange={e => setEventTier(e.target.value)} style={{
+                padding: "12px 10px", borderRadius: 12, border: "1.5px solid #d8e2f0",
+                fontSize: 13, background: "#fff", outline: "none", fontFamily: "inherit", color: "#0A1D36",
+              }}>
+                {["DGPT","DGPT+","Major","JomezPro","Playoff"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+
+            {/* Event banner */}
+            {eventName && (
+              <div style={{ background: "linear-gradient(135deg,#0A1D36,#1E4B8C)", borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: "#fff", fontWeight: 700 }}>{eventName}</div>
+                  <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12 }}>{eventDates || "Dates TBD"} · {eventTier}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: "#D4AF37", fontWeight: 800, fontSize: 20 }}>{totalScored}</div>
+                  <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>scored</div>
+                </div>
+              </div>
+            )}
+
+            {winner && (
+              <div style={{ background: "linear-gradient(135deg,#fdf8ec,#fef3d0)", border: "1.5px solid #D4AF37", borderRadius: 12, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 22 }}>🏆</span>
+                <div>
+                  <div style={{ fontWeight: 800, color: "#0A1D36" }}>{winner.name}</div>
+                  <div style={{ fontSize: 12, color: "#5a6a7a" }}>Tournament Winner · +1 bonus pt</div>
+                </div>
+              </div>
+            )}
+
+            {/* Search */}
+            <input placeholder="🔍 Search players..." value={search} onChange={e => setSearch(e.target.value)} style={{
+              width: "100%", padding: "11px 14px", borderRadius: 12, border: "1.5px solid #d8e2f0",
+              fontSize: 14, marginBottom: 10, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: "#0A1D36",
+            }} />
+
+            {/* Sort buttons */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#5a6a7a", letterSpacing: 0.5, marginBottom: 8 }}>
+              ALL PLAYERS ({filtered.length}) — Enter strokes vs par · 🏆 = tournament winner
+            </div>
+
+            {/* Player rows */}
+            <div style={{ maxHeight: 400, overflowY: "auto", marginBottom: 14 }}>
+              {filtered.map((p, i) => {
+                const entry = getEntry(p.id);
+                const pts = fantasyPts(p.id);
+                const hasScore = entry.strokesVsPar !== 0 || entry.didWin;
+                return (
+                  <div key={p.id} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "9px 0",
+                    borderBottom: i < filtered.length - 1 ? "1px solid #d8e2f0" : "none",
+                    background: hasScore ? "rgba(212,175,55,0.05)" : "transparent",
+                  }}>
+                    <Av ini={p.ini} size={32} color={hasScore ? "#1E4B8C" : "#ccc"} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                      <div style={{ fontSize: 10, color: "#5a6a7a" }}>{p.div} · {p.rating}</div>
+                    </div>
+                    {/* Stroke stepper */}
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <button onClick={() => setStroke(p.id, entry.strokesVsPar - 1)} style={{ width: 28, height: 28, borderRadius: "8px 0 0 8px", border: "1.5px solid #d8e2f0", background: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>−</button>
+                      <div style={{
+                        width: 40, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
+                        border: "1.5px solid #d8e2f0", borderLeft: "none", borderRight: "none",
+                        fontWeight: 800, fontSize: 13, background: "#fff",
+                        color: entry.strokesVsPar < 0 ? "#2d5a2d" : entry.strokesVsPar > 0 ? "#c0392b" : "#5a6a7a",
+                      }}>{entry.strokesVsPar > 0 ? `+${entry.strokesVsPar}` : entry.strokesVsPar}</div>
+                      <button onClick={() => setStroke(p.id, entry.strokesVsPar + 1)} style={{ width: 28, height: 28, borderRadius: "0 8px 8px 0", border: "1.5px solid #d8e2f0", background: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>+</button>
+                    </div>
+                    {/* Pts preview */}
+                    <div style={{ width: 32, textAlign: "right", fontWeight: 800, fontSize: 13, color: pts > 0 ? "#2d5a2d" : pts < 0 ? "#c0392b" : "#5a6a7a" }}>
+                      {pts > 0 ? `+${pts}` : pts}
+                    </div>
+                    {/* Win button */}
+                    <button onClick={() => toggleWin(p.id)} style={{
+                      width: 30, height: 28, borderRadius: 8,
+                      border: `1.5px solid ${entry.didWin ? "#D4AF37" : "#d8e2f0"}`,
+                      background: entry.didWin ? "#D4AF37" : "#fff",
+                      cursor: "pointer", fontSize: 13,
+                    }}>🏆</button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Save button */}
+            <button onClick={handleSave} disabled={saving} style={{
+              width: "100%", padding: "15px 0", background: saving ? "#ccc" : "#D4AF37",
+              color: "#0A1D36", border: "none", borderRadius: 12,
+              fontWeight: 800, fontSize: 16, cursor: saving ? "default" : "pointer", fontFamily: "inherit",
+            }}>
+              {saving ? "Saving..." : `💾 Save Scores for All Leagues (${totalScored} players)`}
+            </button>
+            <p style={{ color: "#5a6a7a", fontSize: 11, textAlign: "center", marginTop: 8 }}>
+              Fantasy pts = (strokes vs par × −1) + 1 win bonus
+            </p>
+          </div>
+        )}
+
+        {/* ── HISTORY TAB ── */}
+        {tab === "history" && (
+          <div style={{ background: "#fff", borderRadius: 16, padding: "16px" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0A1D36", marginBottom: 14 }}>📋 Score Entry History</div>
+            {scoreHistory.length === 0 && (
+              <p style={{ color: "#5a6a7a", textAlign: "center" }}>No scores entered yet.</p>
+            )}
+            {scoreHistory.map((h, i) => (
+              <div key={i} style={{ padding: "12px 0", borderBottom: i < scoreHistory.length - 1 ? "1px solid #d8e2f0" : "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#0A1D36" }}>{h.event}</div>
+                    <div style={{ fontSize: 12, color: "#5a6a7a", marginTop: 2 }}>
+                      🥇 {h.winner} · {h.playersScored} players · {h.dates}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#aaa", marginTop: 2 }}>Entered: {h.savedAt}</div>
+                  </div>
+                  <span style={{ background: "#e8eef7", color: "#1E4B8C", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 8 }}>
+                    {h.tier ?? "DGPT"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── PLAYER STATS TAB ── */}
+        {tab === "players" && (
+          <div style={{ background: "#fff", borderRadius: 16, padding: "16px" }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#0A1D36", marginBottom: 14 }}>👤 2027 Player Stats</div>
+            {Object.keys(globalScores).length === 0 && (
+              <p style={{ color: "#5a6a7a", textAlign: "center" }}>No scores entered yet — enter scores after the first event.</p>
+            )}
+            {ALL_PLAYERS
+              .map(p => ({ ...p, gs: globalScores[p.id] ?? { totalPts: 0, wins: 0, eventCount: 0 } }))
+              .sort((a, b) => b.gs.totalPts - a.gs.totalPts)
+              .filter(p => p.gs.totalPts > 0 || p.gs.wins > 0)
+              .map((p, i) => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid #d8e2f0" }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 6, background: i === 0 ? "#D4AF37" : "#e8eef7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: i === 0 ? "#0A1D36" : "#1E4B8C" }}>{i+1}</div>
+                  <Av ini={p.ini} size={32} color="#1E4B8C" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: "#5a6a7a" }}>{p.gs.wins}W · {p.gs.eventCount} events</div>
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: "#1E4B8C" }}>{p.gs.totalPts} pts</div>
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ── GLOBAL ADMIN PANEL ────────────────────────────────────────────────────
+// Only accessible to ccwarf2@gmail.com
+// Enter scores once → updates ALL leagues on the platform
+function GlobalAdminPanel({ onClose, globalScores, onSave }) {
+  const [tab, setTab] = useState("entry"); // entry | history | players
+  const [selectedEvent, setSelectedEvent] = useState("");
+  const [customEvent, setCustomEvent] = useState("");
+  const [eventDates, setEventDates] = useState("");
+  const [eventTier, setEventTier] = useState("DGPT");
+  const [entries, setEntries] = useState({});
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const eventName = selectedEvent === "custom" ? customEvent : selectedEvent;
+  const filteredPlayers = ALL_PLAYERS.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Load existing entries if event already scored
+  useEffect(() => {
+    if (eventName && globalScores[eventName]) {
+      setEntries(globalScores[eventName].scores ?? {});
+    } else {
+      setEntries({});
+    }
+  }, [eventName]);
+
+  const getEntry = (id) => entries[id] ?? { strokesVsPar: 0, didWin: false, dnp: false };
+
+  const setStroke = (id, val) => {
+    setEntries(prev => ({ ...prev, [id]: { ...getEntry(id), strokesVsPar: val, dnp: false } }));
+  };
+
+  const toggleWin = (id) => {
+    const current = getEntry(id).didWin;
+    const newEntries = { ...entries };
+    // Remove win from all others
+    Object.keys(newEntries).forEach(k => { newEntries[k] = { ...newEntries[k], didWin: false }; });
+    newEntries[id] = { ...getEntry(id), didWin: !current };
+    setEntries(newEntries);
+  };
+
+  const toggleDNP = (id) => {
+    setEntries(prev => ({ ...prev, [id]: { ...getEntry(id), dnp: !getEntry(id).dnp, strokesVsPar: 0 } }));
+  };
+
+  const fantasyPts = (id) => {
+    const e = getEntry(id);
+    if (e.dnp) return 0;
+    return (e.strokesVsPar * -1) + (e.didWin ? 1 : 0);
+  };
+
+  const scoredCount = Object.keys(entries).filter(id => {
+    const e = entries[id];
+    return e && (e.strokesVsPar !== 0 || e.didWin) && !e.dnp;
+  }).length;
+
+  const winner = ALL_PLAYERS.find(p => entries[p.id]?.didWin);
+
+  const handleSave = () => {
+    if (!eventName.trim()) return alert("Select or enter an event name");
+    if (scoredCount === 0) return alert("Enter at least one player score");
+    setSaving(true);
+
+    const newGlobalScores = {
+      ...globalScores,
+      [eventName]: {
+        event: eventName,
+        dates: eventDates,
+        tier: eventTier,
+        winner: winner?.name ?? "",
+        scores: entries,
+        savedAt: new Date().toISOString(),
+        scoredCount,
+      }
+    };
+
+    onSave(newGlobalScores);
+    setSaved(true);
+    setSaving(false);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const history = Object.values(globalScores).sort((a, b) =>
+    new Date(b.savedAt) - new Date(a.savedAt)
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto" }}>
+      <div style={{ background: T.bg, width: "100%", maxWidth: 520, minHeight: "100vh", fontFamily: "'Helvetica Neue',sans-serif" }}>
+
+        {/* Admin Header */}
+        <div style={{ background: `linear-gradient(135deg, ${T.darkGreen}, #0d2a4a)`, padding: "16px 16px 14px", position: "sticky", top: 0, zIndex: 10, borderBottom: `3px solid ${T.accent}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>⚡</span>
+                <span style={{ color: "#fff", fontWeight: 800, fontSize: 18, fontFamily: "'Georgia',serif" }}>Global Admin</span>
+                <span style={{ background: T.accent, color: T.darkGreen, fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 8, letterSpacing: 1 }}>WARRIOR DG</span>
+              </div>
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 }}>
+                Scores entered here update ALL leagues instantly
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", width: 34, height: 34, borderRadius: 17, cursor: "pointer", fontSize: 18 }}>×</button>
+          </div>
+
+          {/* Admin tabs */}
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["entry","📊 Score Entry"],["history","📋 History"],["players","👥 Players"]].map(([id, label]) => (
+              <button key={id} onClick={() => setTab(id)} style={{
+                padding: "6px 14px", borderRadius: 16, fontSize: 12, fontWeight: 700,
+                border: "none", cursor: "pointer",
+                background: tab === id ? T.accent : "rgba(255,255,255,0.1)",
+                color: tab === id ? T.darkGreen : "#fff",
+              }}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: "16px 16px 40px" }}>
+
+          {/* ── SCORE ENTRY TAB ── */}
+          {tab === "entry" && (<>
+            {saved && (
+              <div style={{ background: "#e8f5e9", border: "1.5px solid #4caf50", borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 24 }}>✅</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: "#2e7d32" }}>Scores saved globally!</div>
+                  <div style={{ fontSize: 12, color: "#555" }}>All leagues will reflect {eventName} results</div>
+                </div>
+              </div>
+            )}
+
+            {/* Event selector */}
+            <div style={{ background: T.card, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.07)" }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: T.subtext, letterSpacing: 1, margin: "0 0 12px" }}>1. SELECT EVENT</p>
+
+              <select
+                value={selectedEvent}
+                onChange={e => { setSelectedEvent(e.target.value); setEntries({}); }}
+                style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, background: "#fff", outline: "none", fontFamily: "inherit", color: T.text, marginBottom: 8 }}
+              >
+                <option value="">-- Select 2027 DGPT Event --</option>
+                {UPCOMING.map((e, i) => (
+                  <option key={i} value={e.name}>{e.name} · {e.dates} · {e.tier}</option>
+                ))}
+                <option value="custom">✏️ Custom event name...</option>
+              </select>
+
+              {selectedEvent === "custom" && (
+                <input placeholder="Custom event name" value={customEvent} onChange={e => setCustomEvent(e.target.value)}
+                  style={{ width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, marginBottom: 8, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }} />
+              )}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <input placeholder="Dates (e.g. Mar 12–14, 2027)" value={eventDates} onChange={e => setEventDates(e.target.value)}
+                  style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }} />
+                <select value={eventTier} onChange={e => setEventTier(e.target.value)}
+                  style={{ padding: "12px 10px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 13, background: "#fff", outline: "none", fontFamily: "inherit", color: T.text }}>
+                  {["DGPT","DGPT+","Major","JomezPro","Playoff"].map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+
+              {eventName && (
+                <div style={{ marginTop: 10, padding: "10px 14px", background: T.lightGreen, borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: T.darkGreen }}>{eventName}</div>
+                    <div style={{ fontSize: 12, color: T.subtext }}>{eventDates} · {eventTier}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 800, color: T.accent, fontSize: 20 }}>{scoredCount}</div>
+                    <div style={{ fontSize: 11, color: T.subtext }}>scored</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Player scores */}
+            <div style={{ background: T.card, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.07)" }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: T.subtext, letterSpacing: 1, margin: "0 0 12px" }}>2. ENTER SCORES</p>
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input placeholder="🔍 Search players..." value={search} onChange={e => setSearch(e.target.value)}
+                  style={{ flex: 1, padding: "10px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, outline: "none", fontFamily: "inherit", color: T.text }} />
+              </div>
+
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.subtext, marginBottom: 10, padding: "6px 0", borderBottom: `1px solid ${T.border}` }}>
+                <span style={{ flex: 1 }}>Player</span>
+                <span style={{ width: 104, textAlign: "center" }}>Strokes vs Par</span>
+                <span style={{ width: 36, textAlign: "center" }}>Pts</span>
+                <span style={{ width: 34, textAlign: "center" }}>🏆</span>
+                <span style={{ width: 40, textAlign: "center" }}>DNP</span>
+              </div>
+
+              <div style={{ maxHeight: 440, overflowY: "auto" }}>
+                {filteredPlayers.map((p, i) => {
+                  const entry = getEntry(p.id);
+                  const pts = fantasyPts(p.id);
+                  const hasScore = entry.strokesVsPar !== 0 || entry.didWin;
+                  return (
+                    <div key={p.id} style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "9px 0",
+                      borderBottom: i < filteredPlayers.length - 1 ? `1px solid ${T.border}` : "none",
+                      opacity: entry.dnp ? 0.4 : 1,
+                      background: entry.didWin ? "rgba(212,175,55,0.08)" : hasScore ? "rgba(30,75,140,0.03)" : "transparent",
+                    }}>
+                      {/* Avatar */}
+                      <Av ini={p.ini} size={32} color={entry.didWin ? T.accent : hasScore ? T.green : "#ccc"} />
+                      {/* Name */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                        <div style={{ fontSize: 10, color: T.subtext }}>{p.div} · {p.rating}</div>
+                      </div>
+                      {/* Stepper */}
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        <button onClick={() => !entry.dnp && setStroke(p.id, entry.strokesVsPar - 1)}
+                          style={{ width: 28, height: 28, borderRadius: "8px 0 0 8px", border: `1.5px solid ${T.border}`, background: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>−</button>
+                        <div style={{
+                          width: 48, height: 28, display: "flex", alignItems: "center", justifyContent: "center",
+                          border: `1.5px solid ${T.border}`, borderLeft: "none", borderRight: "none",
+                          fontWeight: 800, fontSize: 13, background: "#fff",
+                          color: entry.strokesVsPar < 0 ? "#2e7d32" : entry.strokesVsPar > 0 ? T.red : T.subtext,
+                        }}>
+                          {entry.dnp ? "DNP" : entry.strokesVsPar > 0 ? `+${entry.strokesVsPar}` : entry.strokesVsPar}
+                        </div>
+                        <button onClick={() => !entry.dnp && setStroke(p.id, entry.strokesVsPar + 1)}
+                          style={{ width: 28, height: 28, borderRadius: "0 8px 8px 0", border: `1.5px solid ${T.border}`, background: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>+</button>
+                      </div>
+                      {/* Fantasy pts */}
+                      <div style={{ width: 36, textAlign: "right", fontWeight: 800, fontSize: 14, color: pts > 0 ? "#2e7d32" : pts < 0 ? T.red : T.subtext }}>
+                        {entry.dnp ? "—" : pts > 0 ? `+${pts}` : pts}
+                      </div>
+                      {/* Win button */}
+                      <button onClick={() => !entry.dnp && toggleWin(p.id)} style={{
+                        width: 34, height: 28, borderRadius: 8,
+                        border: `1.5px solid ${entry.didWin ? T.accent : T.border}`,
+                        background: entry.didWin ? T.accent : "#fff",
+                        cursor: "pointer", fontSize: 13,
+                      }}>🏆</button>
+                      {/* DNP toggle */}
+                      <button onClick={() => toggleDNP(p.id)} style={{
+                        width: 40, height: 28, borderRadius: 8, fontSize: 10, fontWeight: 700,
+                        border: `1.5px solid ${entry.dnp ? T.red : T.border}`,
+                        background: entry.dnp ? "#fff0f0" : "#fff",
+                        color: entry.dnp ? T.red : T.subtext,
+                        cursor: "pointer",
+                      }}>DNP</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Winner summary */}
+            {winner && (
+              <div style={{ background: `linear-gradient(135deg, #fdf8ec, #fef3d0)`, border: `1.5px solid ${T.accent}`, borderRadius: 14, padding: "14px 16px", marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 28 }}>🏆</span>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: 1 }}>TOURNAMENT WINNER</div>
+                  <div style={{ fontWeight: 800, fontSize: 18, color: T.darkGreen }}>{winner.name}</div>
+                  <div style={{ fontSize: 12, color: T.subtext }}>{eventName} · {eventDates}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Save button */}
+            <button onClick={handleSave} disabled={saving} style={{
+              width: "100%", padding: "16px", borderRadius: 14, border: "none",
+              background: saving ? "#aaa" : T.accent, color: T.darkGreen,
+              fontWeight: 800, fontSize: 16, cursor: saving ? "default" : "pointer",
+              fontFamily: "inherit", letterSpacing: 0.5,
+              boxShadow: "0 4px 14px rgba(212,175,55,0.4)",
+            }}>
+              {saving ? "Saving..." : saved ? "✓ Saved to All Leagues!" : "⚡ Save Scores — Update All Leagues"}
+            </button>
+            <p style={{ color: T.subtext, fontSize: 11, textAlign: "center", marginTop: 8 }}>
+              Fantasy pts = (strokes vs par × −1) + 1 win bonus · DNP = Did Not Play (0 pts)
+            </p>
+          </>)}
+
+          {/* ── HISTORY TAB ── */}
+          {tab === "history" && (<>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14, color: T.darkGreen }}>
+              📋 Score History ({history.length} events)
+            </div>
+            {history.length === 0 && (
+              <div style={{ background: T.card, borderRadius: 14, padding: 20, textAlign: "center", color: T.subtext }}>
+                No events scored yet. Enter your first event in Score Entry.
+              </div>
+            )}
+            {history.map((h, i) => (
+              <div key={i} style={{ background: T.card, borderRadius: 14, padding: "14px 16px", marginBottom: 10, boxShadow: "0 1px 4px rgba(0,0,0,0.07)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: T.darkGreen }}>{h.event}</div>
+                    <div style={{ fontSize: 12, color: T.subtext, marginTop: 2 }}>{h.dates} · {h.tier}</div>
+                    {h.winner && <div style={{ fontSize: 13, color: T.accent, fontWeight: 700, marginTop: 4 }}>🏆 {h.winner}</div>}
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 800, fontSize: 18, color: T.green }}>{h.scoredCount}</div>
+                    <div style={{ fontSize: 11, color: T.subtext }}>players</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: T.subtext, marginTop: 8 }}>
+                  Saved: {new Date(h.savedAt).toLocaleString()}
+                </div>
+                <button onClick={() => { setSelectedEvent(h.event === selectedEvent ? "" : h.event); setTab("entry"); }}
+                  style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: "#fff", color: T.green, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  Edit Scores →
+                </button>
+              </div>
+            ))}
+          </>)}
+
+          {/* ── PLAYERS TAB ── */}
+          {tab === "players" && (<>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14, color: T.darkGreen }}>
+              👥 Player Pool ({ALL_PLAYERS.length} players)
+            </div>
+            <input placeholder="🔍 Search players..." value={search} onChange={e => setSearch(e.target.value)}
+              style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${T.border}`, fontSize: 14, marginBottom: 12, boxSizing: "border-box", outline: "none", fontFamily: "inherit", color: T.text }} />
+            {filteredPlayers.map((p, i) => {
+              // Get season totals from global scores
+              const seasonPts = Object.values(globalScores).reduce((sum, ev) => {
+                const e = ev.scores?.[p.id];
+                if (!e || e.dnp) return sum;
+                return sum + ((e.strokesVsPar * -1) + (e.didWin ? 1 : 0));
+              }, 0);
+              const eventCount = Object.values(globalScores).filter(ev => ev.scores?.[p.id] && !ev.scores[p.id].dnp).length;
+              const wins = Object.values(globalScores).filter(ev => ev.scores?.[p.id]?.didWin).length;
+              return (
+                <div key={p.id} style={{ background: T.card, borderRadius: 12, padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
+                  <Av ini={p.ini} size={38} color={seasonPts > 0 ? T.green : "#ccc"} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+                    <div style={{ fontSize: 12, color: T.subtext }}>{p.div} · Rating {p.rating}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 800, fontSize: 16, color: seasonPts > 0 ? T.green : T.subtext }}>{seasonPts > 0 ? `+${seasonPts}` : seasonPts} pts</div>
+                    <div style={{ fontSize: 11, color: T.subtext }}>{wins}W · {eventCount} events</div>
+                  </div>
+                </div>
+              );
+            })}
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ROOT APP ──────────────────────────────────────────────────────────────
 export default function App() {
   const { user, setUser, signOut } = useAuth();
@@ -3022,6 +3708,40 @@ export default function App() {
   const [playerProfile, setPlayerProfile] = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [showAdmin, setShowAdmin] = useState(false);
+  // Global scores — entered by admin, apply to all leagues
+  const [globalScores, setGlobalScores] = useState(
+    () => {
+      try { return JSON.parse(localStorage.getItem("wfdg_global_scores") || "{}"); }
+      catch { return {}; }
+    }
+  );
+  const isAdmin = user?.email === ADMIN_EMAIL;
+
+  const handleGlobalScoresSaved = (scores) => {
+    setGlobalScores(scores);
+    localStorage.setItem("wfdg_global_scores", JSON.stringify(scores));
+  };
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  // Global scores: { playerId: { totalPts, wins, events: [{name,dates,pts,didWin}] } }
+  const [globalScores, setGlobalScores] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("wfdg_global_scores") ?? "{}"); } catch { return {}; }
+  });
+  const isAdmin = user?.email === ADMIN_EMAIL;
+
+  const handleGlobalScoresSaved = (newScores) => {
+    setGlobalScores(newScores);
+    localStorage.setItem("wfdg_global_scores", JSON.stringify(newScores));
+    // Update current league roster points from global scores
+    if (league) {
+      const updatedRoster = league.roster.map(p => {
+        const gs = newScores[p.id];
+        if (!gs) return p;
+        return { ...p, total: gs.totalPts, wins: gs.wins, events: gs.eventCount };
+      });
+      setLeague(prev => ({ ...prev, roster: updatedRoster }));
+    }
+  };
 
   // ── Auth handlers ──────────────────────────────────────────────────────
   const handleSignUp = async (email, password, username) => {
@@ -3138,13 +3858,28 @@ export default function App() {
     />
   );
 
-  if (screen === "landing") return (
-    <LandingPage
-      onLeagueCreated={handleLeagueCreated}
-      onJoinLeague={handleJoinLeague}
+  // Show admin panel overlay
+  if (showAdminPanel && isAdmin) return (
+    <GlobalAdminPanel
       user={user}
-      onSignOut={handleSignOut}
+      globalScores={globalScores}
+      onScoresSaved={handleGlobalScoresSaved}
+      onClose={() => setShowAdminPanel(false)}
     />
+  );
+
+  if (screen === "landing") return (
+    <>
+      {showAdmin && isAdmin && <GlobalAdminPanel onClose={() => setShowAdmin(false)} globalScores={globalScores} onSave={handleGlobalScoresSaved} />}
+      <LandingPage
+        onLeagueCreated={handleLeagueCreated}
+        onJoinLeague={handleJoinLeague}
+        user={user}
+        onSignOut={handleSignOut}
+        isAdmin={isAdmin}
+        onAdminClick={() => setShowAdmin(true)}
+      />
+    </>
   );
   if (screen === "draft") return <DraftRoom league={league} onDraftComplete={handleDraftComplete} onCpuTeamsReady={handleSetCpuTeams} />;
   if (screen === "salaryDraft") return <SalaryDraftRoom league={league} onDraftComplete={handleDraftComplete} onCpuTeamsReady={handleSetCpuTeams} />;
@@ -3169,7 +3904,7 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "'Helvetica Neue',sans-serif", background: T.bg, minHeight: "100vh", maxWidth: 480, margin: "0 auto", position: "relative" }}>
-      <NavBar leagueName={league.leagueName} onHome={() => setPage("home")} onMenu={() => setDrawerOpen(true)} />
+      <NavBar leagueName={league.leagueName} onHome={() => setPage("home")} onMenu={() => setDrawerOpen(true)} onAdmin={() => setShowAdminPanel(true)} isAdmin={isAdmin} />
       <SideDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} setPage={setPage} />
       {playerProfile && (
         <PlayerProfile
